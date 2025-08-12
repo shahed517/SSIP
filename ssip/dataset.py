@@ -6,7 +6,7 @@ import torch, torchaudio
 from torch.utils.data import Dataset
 import os 
 
-class EEGMelDataset(Dataset):
+class EEGLogMelDataset(Dataset):
     def __init__(self, root_dir):
         """
         root_dir should contain:
