@@ -84,7 +84,6 @@ if __name__ == "__main__":
     winL = 0.05
     frameshift = 0.01
     MIDDLE_ONLY = False  
-    NUM_PAST_WINDOWS = 10
     path_bids = '/depot/jgmakin/data/speech_decoding/Dutch_Dataset'
     MAX_WAV_VALUES  = []
     file_list = [f"/depot/jgmakin/data/speech_decoding/Dutch_Dataset/sub-{i:02d}/ieeg/sub-{i:02d}_task-wordProduction_events.tsv" 
@@ -94,7 +93,7 @@ if __name__ == "__main__":
 
     # ===== Step 1: Extract the EEG and AUDIO from the .nwb files =====
     for p_id, participant in enumerate(participants['participant_id']): 
-        if p_id not in [2]:
+        if p_id not in [2]: ## subject-3 for now
             continue 
         io = NWBHDF5IO(os.path.join(path_bids,participant,'ieeg',f'{participant}_task-wordProduction_ieeg.nwb'), 'r')
         nwbfile = io.read()

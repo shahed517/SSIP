@@ -994,7 +994,6 @@ class HoDiffusion(nn.Module, DiffusionBase):
         return x
 
 
-
 class SDEDiffusion(nn.Module, DiffusionBase):
     """Stochastic Differential Equation (SDE) based diffusion model, as proposed in 
     Song et al. (2021) 'SCORE-BASED GENERATIVE MODELING THROUGH SDEs' (All stars 2021)
@@ -1058,6 +1057,320 @@ class SDEDiffusion(nn.Module, DiffusionBase):
             xt = (xt - dxt)
         return xt
     
+    def reverse_diffusion_dps(
+        self,
+        z,
+        eeg_obs,
+        likelihood_model,
+        n_timesteps=100,
+        start_t=1.0,
+        stoc=False,
+        lambda_cond=0.001,
+    ):
+        """
+        Diffusion Posterior Sampling (DPS) for generating mel from EEG.
+
+        Args:
+            z: initial noise tensor (B, 80, 200) mel-shaped
+            eeg_obs: observed EEG for this sample (B, C, T)
+            likelihood_model: mel -> eeg mapping
+            lambda_cond: conditioning strength
+        """
+        device = z.device
+        xt = z
+        h = start_t / n_timesteps
+
+        for i in range(n_timesteps):
+            # current diffusion time
+            print(f'time step {i} completed!')
+            t = (start_t - (i + 0.5) * h) * torch.ones(z.shape[0], device=device)
+
+            # expand for broadcast into estimator
+            time = t
+            while time.ndim < xt.ndim:
+                time = time.unsqueeze(-1)
+
+            noise_t = self.get_noise(time)      # β(t)
+
+            # -------------------------------------------------------
+            # 1. PRIOR SCORE (score_prior = -eps / sqrt(1 - alpha_bar))
+            # -------------------------------------------------------
+            eps = self.estimator(xt, t)         # noise prediction
+            alpha_bar = self.get_signal_variance(time)
+            score_prior = -eps / torch.sqrt(1 - alpha_bar)
+
+            # -------------------------------------------------------
+            # 2. PREDICT x0 FROM xt  (SDE Tweedie-like estimate)
+            #    x0_hat = (xt + sqrt(1-alpha)*eps) / sqrt(alpha)
+            # -------------------------------------------------------
+            # 2. PREDICT x0 FROM xt
+            sqrt_ab = torch.sqrt(alpha_bar)
+            sqrt_1_ab = torch.sqrt(1 - alpha_bar)
+            x0_hat = (xt + sqrt_1_ab * eps) / sqrt_ab     # differentiable
+
+            # 3. Compute likelihood gradient wrt x0_hat
+            x0_hat_req = x0_hat.clone().requires_grad_(True)
+
+            eeg_pred = likelihood_model(x0_hat_req)
+            eeg_pred = eeg_pred[:, :z.shape[-1], :]
+            if torch.isnan(eeg_pred).any():
+                print("NaN inside likelihood model!")
+            eeg_obs = eeg_obs[:, :z.shape[-1], :]
+            ll_loss = F.mse_loss(eeg_pred, eeg_obs)
+
+            # Gradient wrt x0
+            grad_x0 = torch.autograd.grad(ll_loss, x0_hat_req)[0]   # d loss / d x0_hat
+            grad_x0 = grad_x0.detach()
+
+            # -------------------------------------------------------
+            # 4. Pull back likelihood gradient to x_t
+            #    xt is scaled noise version of x0, but DPS simply applies
+            #    grad_x0 in x0-space directly (per paper)
+            # -------------------------------------------------------
+            grad_xt = grad_x0
+            print("step", i, "grad norm:", grad_x0.norm().item())
+
+
+            # -------------------------------------------------------
+            # 5. Combined posterior score (prior + likelihood)
+            #    reverse drift = 0.5*( -xt - score_prior + λ * grad_xt )
+            # -------------------------------------------------------
+            drift = 0.5 * (-xt - score_prior + lambda_cond * grad_xt)
+
+            dxt = drift * noise_t * h
+
+            # -------------------------------------------------------
+            # 6. Stochastic term (optional: standard reverse SDE noise)
+            # -------------------------------------------------------
+            if stoc:
+                dxt_stoc = torch.randn_like(xt) * torch.sqrt(noise_t * h)
+                dxt = dxt + dxt_stoc
+
+            # update step
+            xt = xt - dxt
+
+        return xt
+    
+    def reverse_diffusion_dps_stable(
+        self,
+        z,
+        eeg_obs,
+        likelihood_model,
+        n_timesteps=200,
+        start_t=1.0,
+        stoc=False,
+        lambda_cond=1.0,
+        max_grad_norm=10.0,
+        min_sqrt_alpha=1e-3,
+        verbose=False,
+    ):
+        """
+        Numerically-stable DPS reverse sampler (SDE) to generate mel conditioned on eeg_obs.
+
+        Args:
+        z: initial noise tensor (B, C_mel, L) — same shape as mel (e.g. (B, 80, 200))
+        eeg_obs: observed EEG tensor (B, C_eeg, L_eeg) or shaped as likelihood expects
+        likelihood_model: callable mel -> eeg_pred (must be differentiable)
+        n_timesteps: number of reverse steps
+        start_t: start time (1.0 for normalized SDE)
+        stoc: whether to include stochastic term
+        lambda_cond: conditioning strength (start small!)
+        max_grad_norm: max allowed L2 norm per-example for grad (clipping)
+        min_sqrt_alpha: clamp for sqrt(alpha_bar) to avoid division blow-ups
+        verbose: print debug info each step if True
+        Returns:
+        xt: final denoised mel (torch.Tensor)
+        """
+
+        device = z.device
+        dtype = z.dtype
+        xt = z.clone().to(device=device, dtype=dtype)
+
+        # step size in the continuous t ∈ [0, start_t] domain
+        h = start_t / float(n_timesteps)
+
+        for i in range(n_timesteps):
+            t_scalar = (start_t - (i + 0.5) * h)
+            # vectorize time for batch
+            t = torch.full((xt.shape[0],), t_scalar, device=device, dtype=dtype)
+
+            # ensure time dims match xt for functions that broadcast
+            time = t
+            while time.ndim < xt.ndim:
+                time = time.unsqueeze(-1)
+
+            # get noise schedule value β(t)
+            noise_t = self.get_noise(time)  # shape matches broadcast
+
+            # -----------------------------
+            # PRIOR SCORE (score_prior)
+            # estimator returns eps (noise prediction)
+            # -----------------------------
+            eps = self.estimator(xt, t)  # expected shape (B, C_mel, L)
+            # compute alpha_bar and sqrt factors (alpha_bar = signal variance)
+            alpha_bar = self.get_signal_variance(time)  # shape (B,...)
+            # clamp alpha_bar between 0 and 1 numerically
+            alpha_bar = torch.clamp(alpha_bar, min=0.0, max=1.0)
+
+            sqrt_ab = torch.sqrt(alpha_bar)  # may be tiny
+            sqrt_1_ab = torch.sqrt(torch.clamp(1.0 - alpha_bar, min=0.0))
+
+            # stable handling: avoid dividing by very small sqrt_ab which leads to huge x0 estimates
+            # create mask: for entries where sqrt_ab is too small, use stable linear approximation:
+            #   if sqrt_ab >= min_sqrt_alpha: x0_hat = (xt + sqrt_1_ab * eps) / sqrt_ab
+            #   else:                       x0_hat = xt + sqrt_1_ab * eps  (no division)
+            small_mask = (sqrt_ab < min_sqrt_alpha).to(dtype=dtype)
+            big_mask = 1.0 - small_mask
+
+            # prepare shapes for broadcasting
+            sqrt_ab_b = torch.clamp(sqrt_ab, min=min_sqrt_alpha)
+            # shapes match xt because alpha_bar was matched above
+            x0_div = (xt + sqrt_1_ab * eps) / sqrt_ab_b
+            x0_lin = xt + sqrt_1_ab * eps
+
+            # combine according to mask
+            # expand masks to xt shape if needed
+            def _expand_to_shape(tensor, target_shape):
+                while tensor.ndim < len(target_shape):
+                    tensor = tensor.unsqueeze(-1)
+                return tensor
+
+            small_mask_e = _expand_to_shape(small_mask, xt.shape)
+            big_mask_e = _expand_to_shape(big_mask, xt.shape)
+
+            x0_hat = big_mask_e * x0_div + small_mask_e * x0_lin
+            # x0_hat is computed without detach so autograd can flow if we set requires_grad on it later.
+
+            # PRIOR score estimate used in drift:
+            # score_prior = - eps / sqrt(1 - alpha_bar)
+            denom = torch.sqrt(torch.clamp(1.0 - alpha_bar, min=1e-12))
+            denom_e = _expand_to_shape(denom, eps.shape)
+            score_prior = - eps / denom_e
+
+            # -----------------------------
+            # LIKELIHOOD: compute grad_x0 = d/d x0_hat [ -log p(eeg | x0_hat) ]
+            # We compute MSE loss as negative log-likelihood proxy (minimize mse gives +loglik)
+            # We must not detach x0_hat; instead we create a view requiring grad.
+            # -----------------------------
+            x0_hat_req = x0_hat.clone().requires_grad_(True)
+
+            # forward pass through likelihood model - must be differentiable
+            try:
+                eeg_pred = likelihood_model(x0_hat_req)
+                eeg_pred = eeg_pred[:, :z.shape[-1], :]
+                eeg_obs = eeg_obs[:, :z.shape[-1], :]
+            except Exception as e:
+                # likelihood forward failed; make conservative behavior: skip conditioning this step
+                if verbose:
+                    print(f"[DPS] likelihood forward failed at step {i}: {e}; skipping conditioning for this step")
+                eeg_pred = None
+
+            grad_x0 = None
+            if eeg_pred is None:
+                # skip conditioning this step
+                grad_x0 = torch.zeros_like(x0_hat, device=device, dtype=dtype)
+                nan_in_likelihood = True
+            else:
+                # sanitize likelihood output (if it contains NaNs/Infs we must handle)
+                if torch.isnan(eeg_pred).any() or torch.isinf(eeg_pred).any():
+                    if verbose:
+                        print(f"[DPS] NaN/Inf detected in likelihood output at step {i} - sanitizing")
+                    eeg_pred = torch.nan_to_num(eeg_pred, nan=0.0, posinf=1e6, neginf=-1e6)
+
+                # ensure eeg_obs shape matches predictions (do a best-effort trim/pad to avoid shape mismatch)
+                # For robust usage: user should ensure shapes match; here we attempt a safe trim if lengths differ
+                if eeg_pred.shape != eeg_obs.shape:
+                    # try to align along last dims (common case: time-length mismatch)
+                    min_shape = tuple(min(a, b) for a, b in zip(eeg_pred.shape, eeg_obs.shape))
+                    slices_pred = tuple(slice(0, s) for s in min_shape)
+                    slices_obs = tuple(slice(0, s) for s in min_shape)
+                    try:
+                        eeg_pred = eeg_pred[slices_pred]
+                        eeg_obs_cropped = eeg_obs[slices_obs].to(eeg_pred.device, dtype=eeg_pred.dtype)
+                    except Exception:
+                        eeg_obs_cropped = eeg_obs.to(eeg_pred.device, dtype=eeg_pred.dtype)
+                    if verbose:
+                        print(f"[DPS] shape mismatch: eeg_pred {eeg_pred.shape}, eeg_obs {eeg_obs.shape} -> using cropped {eeg_obs_cropped.shape}")
+                else:
+                    eeg_obs_cropped = eeg_obs.to(eeg_pred.device, dtype=eeg_pred.dtype)
+
+                # compute likelihood loss (MSE). Use functional reference to avoid shadowing issues.
+                import torch.nn.functional as F
+                ll_loss = F.mse_loss(eeg_pred, eeg_obs_cropped, reduction='mean')
+
+                # compute gradient wrt x0_hat_req
+                # We compute gradient of ll_loss (a scalar) wrt x0_hat_req
+                try:
+                    grad_x0 = torch.autograd.grad(ll_loss, x0_hat_req, retain_graph=False, create_graph=False)[0]
+                except RuntimeError as e:
+                    # sometimes autograd fails if graph disconnected; fallback to zero grad
+                    if verbose:
+                        print(f"[DPS] autograd.grad failed at step {i}: {e}; using zero grad")
+                    grad_x0 = torch.zeros_like(x0_hat, device=device, dtype=dtype)
+
+                # sanitize gradient: NaNs/Infs -> clipped numeric values
+                grad_x0 = torch.nan_to_num(grad_x0, nan=0.0, posinf=1e6, neginf=-1e6)
+
+                # per-example norm clipping: compute flattened norm per batch entry
+                B = grad_x0.shape[0]
+                flat = grad_x0.view(B, -1)
+                grad_norm = torch.norm(flat, dim=1, keepdim=True)  # (B,1)
+                # scale factor <= 1 that reduces norms above max_grad_norm
+                scale = (max_grad_norm / (grad_norm + 1e-12)).clamp(max=1.0)
+                # expand to grad shape
+                scale_expand = scale.view(B, *([1] * (grad_x0.ndim - 1)))
+                grad_x0 = grad_x0 * scale_expand
+
+                nan_in_likelihood = False
+
+            # -----------------------------
+            # ADAPTIVE LAMBDA: scale conditioning by alpha_bar to reduce effect at early times
+            # (when alpha_bar is tiny, the effect of the likelihood should be small)
+            # -----------------------------
+            # expand alpha_bar to match grad shape
+            alpha_bar_e = _expand_to_shape(alpha_bar, grad_x0.shape)
+            # ensure the factor is not zero; clamp bottom to avoid zeroing everything when alpha_bar tiny
+            lambda_scale = alpha_bar_e.clamp(min=1e-6)
+            lambda_eff = lambda_cond * lambda_scale
+
+            # -----------------------------
+            # Build posterior drift and step update
+            # -----------------------------
+            # note: score_prior already computed above
+            # Combine prior and likelihood gradients in a numerically stable way
+            drift = 0.5 * (-xt - score_prior + lambda_eff * grad_x0)
+
+            # scale by β(t) and step h
+            dxt = drift * noise_t * h
+
+            # optional stochastic term
+            if stoc:
+                dxt_stoc = torch.randn_like(xt) * torch.sqrt(torch.clamp(noise_t * h, min=0.0))
+                dxt = dxt + dxt_stoc
+
+            # update xt and sanitize
+            xt = xt - dxt
+            # clip xt to reasonable range to prevent runaway
+            xt = torch.clamp(xt, -1e3, 1e3)
+
+            # final nan check and fix
+            if torch.isnan(xt).any() or torch.isinf(xt).any():
+                if verbose:
+                    print(f"[DPS] Detected NaN/Inf in xt at step {i}. Replacing NaNs with zeros and continuing.")
+                xt = torch.nan_to_num(xt, nan=0.0, posinf=1e3, neginf=-1e3)
+                # consider reducing lambda_cond further if repeated
+
+            # OPTIONAL VERBOSE logging
+            if verbose:
+                try:
+                    # compute grad norm for printing (0 if grad_x0 was None)
+                    grad_norm_val = float(grad_x0.view(grad_x0.shape[0], -1).norm(dim=1).mean().item()) if grad_x0 is not None else 0.0
+                except Exception:
+                    grad_norm_val = float('nan')
+                print(f"time step {i} completed! step {i} grad norm: {grad_norm_val}  nan_in_likelihood:{nan_in_likelihood}")
+
+        return xt
+
     @torch.no_grad()
     def reverse_diffusion_step(self, z, t, h, stoc=False):
         """One step of reverse diffusion at time t."""
