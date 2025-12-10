@@ -24,7 +24,7 @@ The end result is that during inference, mel spectrograms are gradually denoised
 </div>
 
 ## Dataset
-<p>The ECoG data for one of the 48 subjects in the 2024 study made publicly available by Flinkerlab has been used in this project. The first three cells of the <i>finkerlab_likelihood.ipynb</i> notebook contains code to process the data as required. You can donwload the dataset from <a href="https://data.mendeley.com/datasets/fp4bv9gtwk/2">here</a></p>
+<p>The ECoG dataset (one subject only) used in this study was made publicly available by <i>Chung et.al.</i> from their recent study from 2023. The first three cells of the <i>finkerlab_likelihood.ipynb</i> notebook contains code to process the data as required. You can donwload the dataset from <a href="https://data.mendeley.com/datasets/fp4bv9gtwk/2">here</a></p>
 
 ## Reproduce Results
 You can install the dependencies from the <i>requirements.txt</i> file using the following: 
