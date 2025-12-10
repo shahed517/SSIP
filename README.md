@@ -17,7 +17,7 @@ Speech synthesis from neural recordings (stereoEEG/ECoG) is a challenging proble
 </center>
 
 <div align="justify">
-The problem can be substantially alleviated if we take help from a generative prior that has been trained on thousands of hours worth of speech data. We adopt a generative approach to speech synthesis, where we decompose the problem of speech synthesis as a sampling from a posterior distribution which requires the knowledge of 1) a diffusion model trained on mel spectrograms, and 2) a likelihood model that maps speech to mel spectrograms. And since we use a pretrained diffusion model, the current methodology only requires us to train a likehood model $p(X_{eeg}|X_{mel}$. Then the Diffusion Posterior Sampling (_Chung et.al._, ICLR 23) approach is used to estimate the likelihood gradients at different timesteps of the diffusion sampling procedure.
+The problem can be substantially alleviated if we take help from a generative prior that has been trained on thousands of hours worth of speech data. We adopt a generative approach to speech synthesis, where we decompose the problem of speech synthesis as a sampling from a posterior distribution which requires the knowledge of 1) a diffusion model trained on mel spectrograms, and 2) a likelihood model that maps speech to mel spectrograms. And since we use a pretrained diffusion model, the current methodology only requires us to train a likehood model $ p(X_{eeg}|X_{mel}) $. Then the Diffusion Posterior Sampling (_Chung et.al._, ICLR 23) approach is used to estimate the likelihood gradients at different timesteps of the diffusion sampling procedure.
 </div>
 
 ## Dataset
