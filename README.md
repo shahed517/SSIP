@@ -24,11 +24,10 @@ The problem can be substantially alleviated if we take help from a generative pr
 <p>I have used the ECoG dataset made publicly available by Flinkerlab. The first three cells of the <i>finkerlab_likelihood.ipynb</i> notebook contains code to process the data as required. You can donwload the dataset from <a href="https://data.mendeley.com/datasets/fp4bv9gtwk/2">here</a></p>
 
 ## Reproduce Results
-<p>You can install the dependencies from the <i>requirements.txt</i> file using the following: 
+You can install the dependencies from the <i>requirements.txt</i> file using the following: 
 ```bash
 pip install -r requirements.txt
 ```
-</p>
 
 Key ideas are summarized as follows:
 * Train an unconditional diffusion model for mel spectrograms.
