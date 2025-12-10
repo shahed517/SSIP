@@ -17,7 +17,10 @@ Speech synthesis from neural recordings (stereoEEG/ECoG) is a challenging proble
 </center>
 
 <div align="justify">
-The problem can be substantially alleviated if we take help from a generative prior that has been trained on thousands of hours worth of speech data. We adopt a generative approach to speech synthesis, where we decompose the problem of speech synthesis as a sampling from a posterior distribution which requires the knowledge of 1) a diffusion model trained on mel spectrograms, and 2) a likelihood model that maps speech to mel spectrograms. And since we use a pretrained diffusion model, the current methodology only requires us to train a likehood model $$p(X_{eeg} \mid X_{mel})$$. Then the Diffusion Posterior Sampling (<i>Chung et.al.</i>, ICLR 23) approach is used to estimate the likelihood gradients at different timesteps of the diffusion sampling procedure.
+The problem can be substantially alleviated if we take help from a generative prior that has been trained on thousands of hours worth of speech data. We adopt a generative approach to speech synthesis, where we decompose the problem of speech synthesis as a sampling from a posterior distribution which requires the knowledge of 1) a diffusion model trained on mel spectrograms, and 2) a likelihood model that maps speech to mel spectrograms. And since we use a pretrained diffusion model, the current methodology only requires us to train a likehood model p(X<sub>eeg</sub> | X<sub>mel</sub>). Then the <i>Diffusion Posterior Sampling</i> (<i>Chung et.al.</i>, ICLR 23) approach is used to estimate the likelihood gradients at different timesteps of the diffusion sampling procedure.
+<br>
+The end result is that during inference, mel spectrograms are gradually denoised while being pushed toward features consistent with the ECoG input. 
+
 </div>
 
 ## Dataset
@@ -28,9 +31,9 @@ You can install the dependencies from the <i>requirements.txt</i> file using the
 ```bash
 pip install -r requirements.txt
 ```
+The code to generate the weights for the likelihood model are in the <i>finkerlab_likelihood.ipynb</i> notebook, while the code to generate samples for any arbitrary ECoG from the dataset is in the <i>diffusion_model.ipynb</i> notebook.
 
-Key ideas are summarized as follows:
-* Train an unconditional diffusion model for mel spectrograms.
-* Use DPS to condition the generation on stereoEEG by maximizing Whisper-based likelihood.
-* At inference, mel spectrograms are gradually denoised while being pushed toward features consistent with the stereoEEG input.
+## References
+1. Chung, H., Kim, J., Mccann, M. T., Klasky, M. L., & Ye, J. C. (2022). Diffusion posterior sampling for general noisy inverse problems. arXiv preprint arXiv:2209.14687.
+2. Chen, X., Wang, R., Khalilian-Gourtani, A., Yu, L., Dugan, P., Friedman, D., ... & Flinker, A. (2024). A neural speech decoding framework leveraging deep learning and speech synthesis. Nature Machine Intelligence, 6(4), 467-480.
 
