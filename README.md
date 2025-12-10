@@ -1,4 +1,3 @@
-# SSIP
 <div align="justify">
 This repository contains the code for the ECE-60131 project : "A diffusion-guided framework for speech synthesis from neural data". 
 This project aims to generate mel spectrograms directly from ECoG signals using diffusion models combined with Diffusion Posterior Sampling (DPS). A pretrained Whisper ASR encoder provides the likelihood guidance, helping steer the diffusion process toward acoustically intelligible mels consistent with the input brain activity.
