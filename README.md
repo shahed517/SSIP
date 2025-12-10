@@ -22,6 +22,7 @@ The problem can be substantially alleviated if we take help from a generative pr
 
 ## Dataset
 <div align="justify>
+     
 I have used the ECoG dataset made publicly available by Flinkerlab. Link to download the data file. The first three cells of the <i>finkerlab_likelihood.ipynb</i> notebook contains code to process the data as required. You can donwload the dataset from [here](https://data.mendeley.com/datasets/fp4bv9gtwk/2).
 </div>
 
