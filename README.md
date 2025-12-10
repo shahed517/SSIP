@@ -31,7 +31,7 @@ You can install the dependencies from the <i>requirements.txt</i> file using the
 ```bash
 pip install -r requirements.txt
 ```
-The code to generate the weights for the likelihood model are in the <i>finkerlab_likelihood.ipynb</i> notebook, while the code to generate samples for any arbitrary ECoG from the dataset is in the <i>diffusion_model.ipynb</i> notebook.
+The code to generate the weights for the likelihood model are in the <i>finkerlab_likelihood.ipynb</i> notebook, while the code to generate samples for any arbitrary ECoG from the dataset is in the <i>diffusion_model.ipynb</i> notebook. The pretrained weights for both the likelihood model and unconditional diffusion model can be found in the /checkpoints directory of the repository.
 
 ## References
 1. Chung, H., Kim, J., Mccann, M. T., Klasky, M. L., & Ye, J. C. (2022). Diffusion posterior sampling for general noisy inverse problems. arXiv preprint arXiv:2209.14687.
