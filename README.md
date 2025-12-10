@@ -8,7 +8,7 @@ This project aims to generate mel spectrograms directly from stereoEEG signals u
 <div align="justify">
 Speech synthesis from neural recordings (stereoEEG/ECoG) is a challenging problem in neuroscience which has drawn researchers from both the Neuroscience and Machine Learning communities in recent years. As depicted in the workflow diagram, a discriminative learning approach can be adopted, however due to a lack of training data, producing intelligible speech from neural data is incredibly difficult. The problem is further pronounced when the workflow expects a model to learn structured speech from mere low-frequency brain recordings. 
 </div>
-
+<br>
 <center>
 <img src="https://github.com/shahed517/SSIP/blob/main/brain_to_voice_illustration.png" 
      alt="Speech Synthesis Workflow" 
